@@ -94,6 +94,11 @@ Río de las Pasadas 64
 Río Guadalteba 8
 Pablo Neruda 5</textarea>
       <span class="hint">Viene rellena con un ejemplo. Bórralo y pega tu lista.</span>
+      <div class="row">
+        <button type="button" class="ghost" id="mic" style="flex:1">🎤 Dictar direcciones</button>
+        <button type="button" class="ghost" id="clear">Borrar lista</button>
+      </div>
+      <span class="hint" id="micHint">Pulsa Dictar y di las direcciones una a una, haciendo una pausa entre cada una. Ejemplo: «Río Guadalteba 5» (pausa) «Margarita 15». Pulsa otra vez para parar.</span>
     </div>
     <button class="primary" id="go">Ordenar ruta</button>
     <div id="status" role="status"></div>
@@ -152,7 +157,7 @@ function normStreet(s) {
 function parse(text) {
   const out = [];
   for (let raw of text.split(/\n/)) {
-    raw = raw.trim(); if (!raw) continue;
+    raw = raw.trim().replace(/[.;:!?]+$/, '').replace(/(\d)\s+y\s+(?=\d)/gi, '$1, ').trim(); if (!raw) continue;
     const m = raw.match(/^(.*?[^\d\s,])[\s,º°nN.]*((?:\d+\s*[a-zA-Z]?\s*(?:,|y|-|\/|\s)?\s*)+)$/);
     if (!m) { out.push({ street: normStreet(raw), num: '' }); continue; }
     const street = normStreet(m[1].replace(/\s(n[º°o]?\.?|num\.?|número)$/i, ''));
@@ -328,6 +333,41 @@ function render(order, salida, salidaTxt, ciudad, modo, tr, errs, total) {
     setTimeout(() => { map.invalidateSize(); map.fitBounds(line.getBounds().pad(0.1)); }, 50);
   }
 }
+
+// Dictado por voz
+(() => {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const mic = $('mic'), hint = $('micHint'), ta = $('lista');
+  $('clear').addEventListener('click', () => { ta.value = ''; ta.focus(); });
+  if (!SR) {
+    mic.hidden = true;
+    hint.textContent = 'Para dictar: toca el recuadro de direcciones y pulsa el micrófono del teclado del móvil. Di cada dirección y pulsa Intro entre una y otra.';
+    return;
+  }
+  let rec = null, on = false;
+  const NUM = { uno:1, una:1, dos:2, tres:3, cuatro:4, cinco:5, seis:6, siete:7, ocho:8, nueve:9, diez:10 };
+  const addLine = txt => {
+    txt = txt.trim().replace(/[.;:!?]+$/, '');
+    if (!txt) return;
+    // "siguiente" o "otra" separan direcciones dichas seguidas
+    for (let part of txt.split(/\s*\b(?:siguiente|otra dirección|nueva línea)\b\s*/i)) {
+      part = part.replace(/\b(uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\b$/i, w => NUM[w.toLowerCase()]).trim();
+      if (!part) continue;
+      ta.value = (ta.value.replace(/\s+$/, '') + '\n' + part).replace(/^\n/, '');
+    }
+    ta.scrollTop = ta.scrollHeight;
+  };
+  const stop = () => { on = false; mic.textContent = '🎤 Dictar direcciones'; mic.style.background = ''; try { rec && rec.stop(); } catch {} };
+  mic.addEventListener('click', () => {
+    if (on) { stop(); return; }
+    rec = new SR();
+    rec.lang = 'es-ES'; rec.continuous = true; rec.interimResults = false;
+    rec.onresult = e => { for (let i = e.resultIndex; i < e.results.length; i++) if (e.results[i].isFinal) addLine(e.results[i][0].transcript); };
+    rec.onerror = e => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') hint.textContent = 'El móvil no deja usar el micrófono aquí. Usa el micrófono del teclado: toca el recuadro y pulsa el micro.'; stop(); };
+    rec.onend = () => { if (on) { try { rec.start(); } catch { stop(); } } };
+    try { rec.start(); on = true; mic.textContent = '⏹ Parar dictado'; mic.style.background = 'var(--accent)'; } catch { stop(); }
+  });
+})();
 
 $('copy').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(lastText); $('copy').textContent = 'Copiada ✓'; }
