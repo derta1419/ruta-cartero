@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Ruta Cartero</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+/* Una sola columna para el móvil: datos arriba, resultado debajo */
+:root{
+  --bg:#f5f6f2; --card:#ffffff; --fg:#1d2420; --muted:#5d6862; --line:#d9ddd6;
+  --accent:#e0a400; --accent-fg:#1d2420; --ok:#2f7a4a; --warn:#b5560f; --bad:#b3261e;
+  --font:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#141816; --card:#1d2320; --fg:#eef1ec; --muted:#a3ada6; --line:#323a36;
+  --accent:#f2bb1d; --accent-fg:#141816; --ok:#6cc58b; --warn:#f0a15e; --bad:#ff8a80; color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.45 var(--font);
+  padding:max(12px,env(safe-area-inset-top)) max(14px,env(safe-area-inset-right)) 40px max(14px,env(safe-area-inset-left))}
+main{max-width:640px;margin:0 auto;display:grid;gap:14px}
+header h1{margin:4px 0 0;font-size:1.5rem;letter-spacing:-.01em}
+header p{margin:2px 0 0;color:var(--muted);font-size:.92rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;display:grid;gap:10px}
+label{font-weight:600;font-size:.9rem}
+.hint{color:var(--muted);font-size:.82rem;font-weight:400}
+input[type=text],textarea{width:100%;font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg)}
+textarea{min-height:200px;resize:vertical}
+.field{display:grid;gap:4px}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.seg input{position:absolute;opacity:0}
+.seg label{display:block;text-align:center;padding:10px;border:1px solid var(--line);border-radius:8px;cursor:pointer;font-weight:600}
+.seg input:checked+label{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.seg input:focus-visible+label{outline:2px solid var(--accent);outline-offset:2px}
+button{font:inherit;font-weight:700;border:0;border-radius:10px;padding:14px;cursor:pointer}
+.primary{background:var(--accent);color:var(--accent-fg);font-size:1.05rem}
+.primary:disabled{opacity:.6}
+.ghost{background:transparent;border:1px solid var(--line);color:var(--fg);padding:10px 12px;font-weight:600}
+button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#status{font-size:.9rem;color:var(--muted);min-height:1.2em}
+.summary{display:flex;gap:16px;flex-wrap:wrap;font-variant-numeric:tabular-nums}
+.summary b{font-size:1.3rem;display:block}
+ol.stops{margin:0;padding:0;list-style:none;display:grid}
+ol.stops li{display:grid;grid-template-columns:2.2em 1fr;gap:8px;padding:9px 0;border-top:1px solid var(--line);align-items:baseline}
+ol.stops li:first-child{border-top:0}
+.n{font-weight:800;font-variant-numeric:tabular-nums;text-align:right}
+.addr{font-weight:600}
+.tag{display:inline-block;font-size:.72rem;font-weight:700;padding:1px 7px;border-radius:99px;margin-left:6px;vertical-align:1px}
+.tag.approx{color:var(--warn);border:1px solid var(--warn)}
+.tag.multi{color:var(--ok);border:1px solid var(--ok)}
+.end{color:var(--muted)}
+.tandas{display:grid;gap:8px}
+.tanda{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:8px}
+.tanda a{background:var(--fg);color:var(--bg);text-decoration:none;font-weight:700;padding:8px 12px;border-radius:8px;white-space:nowrap}
+.errors{color:var(--bad);font-size:.9rem}
+#map{height:300px;border-radius:10px;border:1px solid var(--line)}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+h2{margin:0;font-size:1.05rem}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Ruta Cartero</h1>
+    <p>Pega las direcciones y te las ordeno en la ruta más corta, saliendo y volviendo a la unidad.</p>
+  </header>
+
+  <section class="card">
+    <div class="field">
+      <label for="ciudad">Ciudad o zona</label>
+      <input type="text" id="ciudad" value="Las Lagunas, Mijas">
+    </div>
+    <div class="field">
+      <label for="salida">Salida y llegada <span class="hint">(tu unidad)</span></label>
+      <input type="text" id="salida" value="Camino del Albero">
+    </div>
+    <div class="field">
+      <label>Voy en</label>
+      <div class="seg">
+        <input type="radio" name="modo" id="m-pie" value="pie" checked><label for="m-pie">A pie</label>
+        <input type="radio" name="modo" id="m-moto" value="moto"><label for="m-moto">Moto</label>
+      </div>
+    </div>
+    <div class="field">
+      <label for="lista">Direcciones <span class="hint">· una por línea · varios números con comas: «Río Guadalteba 5, 7, 8»</span></label>
+      <textarea id="lista" spellcheck="false">Río Guadalteba 5
+Río Guadalteba 7
+Margarita 15
+Río de las Pasadas 79
+Río de las Pasadas 64
+Río Guadalteba 8
+Pablo Neruda 5</textarea>
+      <span class="hint">Viene rellena con un ejemplo. Bórralo y pega tu lista.</span>
+    </div>
+    <button class="primary" id="go">Ordenar ruta</button>
+    <div id="status" role="status"></div>
+  </section>
+
+  <section class="card" id="res" hidden>
+    <div class="summary" id="sum"></div>
+    <div class="row">
+      <h2 style="flex:1">Orden para el casillero</h2>
+      <button class="ghost" id="copy">Copiar lista</button>
+    </div>
+    <ol class="stops" id="stops"></ol>
+    <div class="errors" id="errs"></div>
+  </section>
+
+  <section class="card" id="tandasCard" hidden>
+    <h2>Tandas para Google Maps</h2>
+    <span class="hint">Pulsa una tanda y se abre Google Maps con las paradas en orden. Al acabar, vuelve aquí y abre la siguiente.</span>
+    <div class="tandas" id="tandas"></div>
+  </section>
+
+  <section class="card" id="mapCard" hidden>
+    <h2>Mapa</h2>
+    <span class="hint">Mira que ningún punto esté fuera de tu zona. Los naranjas son aproximados (solo se encontró la calle).</span>
+    <div id="map"></div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const LS = 'rutaCartero.v1';
+
+// Recordar ciudad, salida y modo entre usos
+try { const s = JSON.parse(localStorage.getItem(LS) || '{}');
+  if (s.ciudad) $('ciudad').value = s.ciudad;
+  if (s.salida) $('salida').value = s.salida;
+  if (s.modo) document.querySelector(`input[name=modo][value=${s.modo}]`).checked = true;
+} catch {}
+const geoCache = (() => { try { return JSON.parse(localStorage.getItem(LS + '.geo') || '{}'); } catch { return {}; } })();
+const saveCache = () => { try { localStorage.setItem(LS + '.geo', JSON.stringify(geoCache)); } catch {} };
+
+function normStreet(s) {
+  s = s.trim().replace(/\s+/g, ' ').replace(/[,.\-–]+$/, '').trim();
+  s = s.replace(/^(c\/|c\.|cl\.?|calle)\s*/i, 'Calle ')
+       .replace(/^(av\.?|avda\.?|avenida)\s*/i, 'Avenida ')
+       .replace(/^(pza\.?|plaza)\s*/i, 'Plaza ')
+       .replace(/^(pº|p\.º|paseo)\s*/i, 'Paseo ')
+       .replace(/^(cmno\.?|camino)\s*/i, 'Camino ')
+       .replace(/^(urb\.?|urbanización|urbanizacion)\s*/i, 'Urbanización ');
+  if (!/^(Calle|Avenida|Plaza|Paseo|Camino|Urbanización|Pasaje|Carretera|Travesía|Ronda|Glorieta)\b/i.test(s)) s = 'Calle ' + s;
+  return s;
+}
+
+// "Río Guadalteba 5, 7 y 8" -> [{street, num}, ...]
+function parse(text) {
+  const out = [];
+  for (let raw of text.split(/\n/)) {
+    raw = raw.trim(); if (!raw) continue;
+    const m = raw.match(/^(.*?[^\d\s,])[\s,º°nN.]*((?:\d+\s*[a-zA-Z]?\s*(?:,|y|-|\/|\s)?\s*)+)$/);
+    if (!m) { out.push({ street: normStreet(raw), num: '' }); continue; }
+    const street = normStreet(m[1].replace(/\s(n[º°o]?\.?|num\.?|número)$/i, ''));
+    const nums = m[2].match(/\d+\s*[a-zA-Z]?/g) || [''];
+    for (const n of nums) out.push({ street, num: n.replace(/\s+/g, '').toUpperCase() });
+  }
+  return out;
+}
+
+async function nominatim(q) {
+  const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=1&countrycodes=es&accept-language=es&q=' + encodeURIComponent(q);
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('Nominatim ' + r.status);
+  const j = await r.json();
+  return j[0] || null;
+}
+
+let lastCall = 0;
+async function geocode(street, num, ciudad) {
+  const key = (street + '|' + num + '|' + ciudad).toLowerCase();
+  if (geoCache[key]) return geoCache[key];
+  const polite = async q => { const w = 1100 - (Date.now() - lastCall); if (w > 0) await sleep(w); lastCall = Date.now(); return nominatim(q); };
+  let res = null, approx = true;
+  if (num) {
+    const r = await polite(`${street} ${num}, ${ciudad}`);
+    if (r) { res = r; approx = !(r.address && r.address.house_number); }
+  }
+  if (!res) res = await polite(`${street}, ${ciudad}`);
+  if (!res) return null;
+  const g = { lat: +res.lat, lon: +res.lon, approx: num ? approx : true, label: res.display_name };
+  geoCache[key] = g; saveCache();
+  return g;
+}
+
+async function trip(points, modo) {
+  const coords = points.map(p => p.lon.toFixed(6) + ',' + p.lat.toFixed(6)).join(';');
+  const base = modo === 'pie'
+    ? 'https://routing.openstreetmap.de/routed-foot/trip/v1/foot/'
+    : 'https://routing.openstreetmap.de/routed-car/trip/v1/driving/';
+  const r = await fetch(base + coords + '?roundtrip=true&source=first&overview=full&geometries=geojson');
+  if (!r.ok) throw new Error('Rutas ' + r.status);
+  const j = await r.json();
+  if (j.code !== 'Ok') throw new Error(j.message || j.code);
+  return j;
+}
+
+const fmtKm = m => (m / 1000).toLocaleString('es-ES', { maximumFractionDigits: 1 }) + ' km';
+const fmtMin = s => { const m = Math.round(s / 60); return m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + (m % 60) + ' min'; };
+
+let map, layer, lastText = '';
+
+$('go').addEventListener('click', async () => {
+  const ciudad = $('ciudad').value.trim(), salidaTxt = $('salida').value.trim();
+  const modo = document.querySelector('input[name=modo]:checked').value;
+  try { localStorage.setItem(LS, JSON.stringify({ ciudad, salida: salidaTxt, modo })); } catch {}
+  const items = parse($('lista').value);
+  if (!ciudad || !salidaTxt || !items.length) { $('status').textContent = 'Rellena la ciudad, la salida y al menos una dirección.'; return; }
+
+  // Agrupar duplicados (mismo portal)
+  const groups = new Map();
+  for (const it of items) {
+    const k = (it.street + ' ' + it.num).toLowerCase();
+    if (!groups.has(k)) groups.set(k, { street: it.street, num: it.num, count: 0 });
+    groups.get(k).count++;
+  }
+  const stops = [...groups.values()];
+
+  $('go').disabled = true; $('res').hidden = $('tandasCard').hidden = $('mapCard').hidden = true;
+  const errs = [];
+  try {
+    $('status').textContent = 'Buscando la salida…';
+    const sp = parse(salidaTxt)[0] || { street: salidaTxt, num: '' };
+    const salida = await geocode(sp.street, sp.num, ciudad) || await geocode(salidaTxt, '', ciudad);
+    if (!salida) throw new Error('No encuentro la salida. Escríbela de otra forma.');
+
+    const found = [];
+    for (let i = 0; i < stops.length; i++) {
+      const s = stops[i];
+      $('status').textContent = `Buscando direcciones ${i + 1} de ${stops.length}…  (${s.street} ${s.num})`;
+      try {
+        const g = await geocode(s.street, s.num, ciudad);
+        if (g) found.push(Object.assign(s, g)); else errs.push(`${s.street} ${s.num}`);
+      } catch (e) { errs.push(`${s.street} ${s.num}`); }
+    }
+    if (!found.length) throw new Error('No he encontrado ninguna dirección. Revisa la ciudad.');
+
+    $('status').textContent = 'Calculando la ruta más corta…';
+    const pts = [salida, ...found];
+    const t = await trip(pts, modo);
+    // waypoints[i].waypoint_index = posición en el viaje del punto i
+    const order = pts.map((p, i) => ({ p, pos: t.waypoints[i].waypoint_index })).sort((a, b) => a.pos - b.pos).map(o => o.p).slice(1);
+
+    // Dentro de la misma calle, si dos portales caen en el mismo punto, ordenar por número
+    for (let i = 0; i < order.length; ) {
+      let j = i; while (j + 1 < order.length && order[j + 1].street === order[i].street && order[j+1].lat === order[i].lat && order[j+1].lon === order[i].lon) j++;
+      if (j > i) { const run = order.slice(i, j + 1).sort((a, b) => parseInt(a.num) - parseInt(b.num)); order.splice(i, run.length, ...run); }
+      i = j + 1;
+    }
+
+    render(order, salida, salidaTxt, ciudad, modo, t.trips[0], errs, items.length);
+    $('status').textContent = '';
+  } catch (e) {
+    $('status').textContent = '⚠ ' + (e.message || 'Algo ha fallado. Mira que tienes internet y vuelve a probar.');
+  } finally { $('go').disabled = false; }
+});
+
+function render(order, salida, salidaTxt, ciudad, modo, tr, errs, total) {
+  // Resumen
+  const sum = $('sum'); sum.textContent = '';
+  for (const [v, l] of [[order.length, 'paradas'], [total, 'repartos'], [fmtKm(tr.distance), modo === 'pie' ? 'andando' : 'en moto'], [fmtMin(tr.duration), 'de camino, sin contar entregas']]) {
+    const d = document.createElement('div'); const b = document.createElement('b'); b.textContent = v; d.append(b, l); sum.append(d);
+  }
+  // Lista
+  const ol = $('stops'); ol.textContent = '';
+  const lines = [];
+  const add = (n, text, tags, cls) => {
+    const li = document.createElement('li'); if (cls) li.className = cls;
+    const a = document.createElement('span'); a.className = 'n'; a.textContent = n;
+    const b = document.createElement('span'); const s = document.createElement('span'); s.className = 'addr'; s.textContent = text; b.append(s);
+    for (const [c, t] of tags) { const g = document.createElement('span'); g.className = 'tag ' + c; g.textContent = t; b.append(g); }
+    li.append(a, b); ol.append(li);
+  };
+  add('▶', 'Salida: ' + salidaTxt, [], 'end');
+  let n = 0;
+  order.forEach(s => {
+    n++;
+    const name = `${s.street} ${s.num}`.trim();
+    const tags = []; if (s.count > 1) tags.push(['multi', '×' + s.count]); if (s.approx) tags.push(['approx', 'aprox.']);
+    add(n, name, tags);
+    lines.push(`${n}. ${name}${s.count > 1 ? ' (x' + s.count + ')' : ''}`);
+  });
+  add('■', 'Vuelta a ' + salidaTxt, [], 'end');
+  lastText = lines.join('\n');
+  $('errs').textContent = errs.length ? 'No encontradas (revisa cómo están escritas): ' + errs.join(' · ') : '';
+  $('res').hidden = false;
+
+  // Tandas de 10 paradas para Google Maps
+  const seq = order.map(s => `${s.street} ${s.num}, ${ciudad}`.replace(/\s+,/, ','));
+  seq.push(`${salidaTxt}, ${ciudad}`);
+  const tandas = $('tandas'); tandas.textContent = '';
+  let origin = `${salidaTxt}, ${ciudad}`, idx = 0, tn = 0;
+  const travel = modo === 'pie' ? 'walking' : 'driving';
+  while (idx < seq.length) {
+    const chunk = seq.slice(idx, idx + 10);
+    tn++;
+    const dest = chunk[chunk.length - 1], way = chunk.slice(0, -1);
+    const url = 'https://www.google.com/maps/dir/?api=1&travelmode=' + travel +
+      '&origin=' + encodeURIComponent(origin) + '&destination=' + encodeURIComponent(dest) +
+      (way.length ? '&waypoints=' + encodeURIComponent(way.join('|')) : '');
+    const d = document.createElement('div'); d.className = 'tanda';
+    const from = idx + 1, to = Math.min(idx + chunk.length, order.length);
+    const lab = document.createElement('span');
+    lab.textContent = `Tanda ${tn}: paradas ${from}–${to}` + (idx + chunk.length > order.length ? ' + vuelta' : '');
+    const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = 'Abrir';
+    d.append(lab, a); tandas.append(d);
+    origin = dest; idx += chunk.length;
+  }
+  $('tandasCard').hidden = false;
+
+  // Mapa
+  if (window.L) {
+    $('mapCard').hidden = false;
+    if (!map) { map = L.map('map'); L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map); }
+    if (layer) layer.remove();
+    layer = L.layerGroup().addTo(map);
+    const line = L.geoJSON(tr.geometry, { style: { color: '#e0a400', weight: 4 } }).addTo(layer);
+    L.circleMarker([salida.lat, salida.lon], { radius: 9, color: '#1d2420', fillColor: '#1d2420', fillOpacity: 1 }).bindTooltip('Salida').addTo(layer);
+    let k = 0;
+    order.forEach(s => { k++;
+      L.circleMarker([s.lat, s.lon], { radius: 8, color: '#fff', weight: 2, fillColor: s.approx ? '#b5560f' : '#2f7a4a', fillOpacity: 1 })
+        .bindTooltip(String(k), { permanent: true, direction: 'center', className: '' }).addTo(layer);
+    });
+    setTimeout(() => { map.invalidateSize(); map.fitBounds(line.getBounds().pad(0.1)); }, 50);
+  }
+}
+
+$('copy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(lastText); $('copy').textContent = 'Copiada ✓'; }
+  catch { $('copy').textContent = 'No se pudo copiar'; }
+  setTimeout(() => $('copy').textContent = 'Copiar lista', 1800);
+});
+</script>
+</body>
+</html>
